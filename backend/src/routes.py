@@ -1,4 +1,4 @@
-import os,redis
+import os,json,redis
 from fastapi import APIRouter,Depends
 from .database import Session
 from .models import *
@@ -27,12 +27,32 @@ def aliases(d:AliasIn,u=Depends(current)):return change(u,'登记别名',lambda 
 def evidence(d:EvidenceIn,u=Depends(current)):return change(u,'登记证据',lambda s:entrance.evidence(s,d.model_dump()))
 @router.post('/matches')
 def matching(u=Depends(current)):
- def create(s):lock(s);x=MatchRun(state='queued');s.add(x);s.flush();return x
+ def create(s):
+  lock(s);snap={'entrances':[dump(x) for x in rows(s,Entrance)],'aliases':[dump(x) for x in rows(s,Alias)]}
+  x=MatchRun(state='queued',attempt=1,snapshot=snap);s.add(x);s.flush();return x
  d=change(u,'匹配别名',create)
- try:redis.from_url(os.environ['REDIS_URL']).rpush('address:matching',d['id'])
+ try:redis.from_url(os.environ['REDIS_URL']).rpush('address:matching',json.dumps({'id':d['id'],'attempt':d['attempt']}))
  except Exception:
   with Session() as s:x=s.get(MatchRun,d['id']);x.state='failed';x.error='匹配队列不可达，可重新提交';s.commit()
   fail('匹配队列不可达，可重新提交')
+ return d
+@router.post('/matches/{id}/resume')
+def resume(id:int,u=Depends(current)):
+ prev={}
+ def again(s):
+  lock(s);x=get(s,MatchRun,id)
+  if x.state=='ready':fail('本批已算完，无需恢复；新登记资料请发起新批')
+  if x.state=='failed':fail('本批计算失败，请补登资料后发起新批')
+  prev['state']=x.state;x.attempt+=1;x.state='queued';x.error=''
+  return x
+ d=change(u,'恢复匹配批次',again)
+ try:redis.from_url(os.environ['REDIS_URL']).rpush('address:matching',json.dumps({'id':d['id'],'attempt':d['attempt']}))
+ except Exception:
+  with Session() as s:
+   x=s.get(MatchRun,d['id'])
+   if x.state=='queued' and x.attempt==d['attempt']:x.state=prev['state']
+   s.commit()
+  fail('匹配队列不可达，可稍后再次恢复')
  return d
 @router.post('/proposals')
 def pcreate(d:ProposalIn,u=Depends(current)):return change(u,'归并提案',lambda s:proposal.create(s,d.model_dump()))

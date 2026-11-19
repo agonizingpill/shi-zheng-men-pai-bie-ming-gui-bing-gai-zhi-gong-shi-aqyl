@@ -17,9 +17,10 @@ class Evidence(Base):
  id=Column(Integer,primary_key=True);alias_id=Column(Integer,ForeignKey('aliases.id'),nullable=False);reference=Column(String(100),unique=True,nullable=False);description=Column(String(500),nullable=False)
 class MatchRun(Base):
  __tablename__='match_runs'
- id=Column(Integer,primary_key=True);state=Column(String(20),default='queued');result=Column(JSON,nullable=True);error=Column(String(500),default='')
+ id=Column(Integer,primary_key=True);state=Column(String(20),default='queued');attempt=Column(Integer,default=0,nullable=False);snapshot=Column(JSON,nullable=True);result=Column(JSON,nullable=True);error=Column(String(500),default='')
 class Candidate(Base):
  __tablename__='candidates'
+ __table_args__=(UniqueConstraint('run_id','source_id','target_id'),)
  id=Column(Integer,primary_key=True);run_id=Column(Integer,ForeignKey('match_runs.id'),nullable=False);source_id=Column(Integer,ForeignKey('entrances.id'),nullable=False);target_id=Column(Integer,ForeignKey('entrances.id'),nullable=False);similarity=Column(Float,nullable=False);conflict=Column(Integer,nullable=False)
 class Proposal(Base):
  __tablename__='proposals'
